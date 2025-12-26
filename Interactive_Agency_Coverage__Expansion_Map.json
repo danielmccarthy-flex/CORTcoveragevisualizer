@@ -425,7 +425,7 @@
         "Express Employment Professionals"
       ],
       "title": "Agency",
-      "type": "nominal",
+      "type": "nominal"
     }
   }
 },
