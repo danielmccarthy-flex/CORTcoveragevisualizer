@@ -63,9 +63,21 @@
     }
 
     function tryGetFieldName(record, candidates) {
+      const keys = Object.keys(record || {});
       for (const c of candidates) {
-        if (record && Object.prototype.hasOwnProperty.call(record, c)) return c;
-        const lower = Object.keys(record || {}).find(k => k.toLowerCase() === c.toLowerCase());
+        if (!c) continue;
+        // direct match
+        if (Object.prototype.hasOwnProperty.call(record, c)) return c;
+      }
+      // case-insensitive match
+      for (const c of candidates) {
+        const lower = keys.find(k => k.toLowerCase() === c.toLowerCase());
+        if (lower) return lower;
+      }
+      // fallback: try common fields
+      const common = ['Metro', 'metro', 'Display_Name', 'display_name', 'agency', 'agency_clean', 'name'];
+      for (const cc of common) {
+        const lower = keys.find(k => k.toLowerCase() === cc.toLowerCase());
         if (lower) return lower;
       }
       return null;
@@ -92,8 +104,52 @@
       });
     }
 
+    function prepareSpecForEmbed(spec) {
+      const s = JSON.parse(JSON.stringify(spec));
+
+      // enable gridlines on both axes where possible
+      if (s.encoding) {
+        s.encoding.x = s.encoding.x || {};
+        s.encoding.x.axis = s.encoding.x.axis || {};
+        s.encoding.x.axis.grid = true;
+        s.encoding.y = s.encoding.y || {};
+        s.encoding.y.axis = s.encoding.y.axis || {};
+        s.encoding.y.axis.grid = true;
+      }
+
+      // add a top axis by creating a transparent overlay layer that reuses the x encoding
+      try {
+        const bottomLayer = {
+          mark: s.mark,
+          encoding: s.encoding,
+          data: s.data
+        };
+
+        const topEncoding = JSON.parse(JSON.stringify(s.encoding || {}));
+        topEncoding.x = topEncoding.x || {};
+        topEncoding.x.axis = Object.assign({}, topEncoding.x.axis || {}, { orient: 'top', labelAngle: 0, tickSize: 0, domain: false, grid: false });
+
+        const topLayer = {
+          mark: { type: 'rect', opacity: 0 },
+          encoding: topEncoding,
+          data: s.data
+        };
+
+        // build layered spec while preserving datasets and config
+        const layered = Object.assign({}, s);
+        delete layered.mark;
+        delete layered.encoding;
+        delete layered.data;
+        layered.layer = [bottomLayer, topLayer];
+        return layered;
+      } catch (e) {
+        return s;
+      }
+    }
+
     function embedSpec(spec) {
-      vegaEmbed('#vis', spec, { actions: false, renderer: 'canvas' });
+      const prepared = prepareSpecForEmbed(spec);
+      vegaEmbed('#vis', prepared, { actions: false, renderer: 'canvas' });
     }
 
     function applyFilters() {
@@ -162,8 +218,8 @@
 
         if (originalData && originalData.length) {
           // try to detect field names
-          const vField = tryGetFieldName(originalData[0], ['venue', 'Venue', 'site', 'location', 'name']);
-          const aField = tryGetFieldName(originalData[0], ['agency', 'Agency', 'provider', 'organization']);
+          const vField = tryGetFieldName(originalData[0], ['Metro','metro','venue', 'Venue', 'site', 'location', 'name', 'Display_Name']);
+          const aField = tryGetFieldName(originalData[0], ['Display_Name','display_name','agency','agency_clean','Agency','provider','organization']);
 
           const venues = Array.from(new Set(originalData.map(r => getString(r[vField]).trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
           const agencies = Array.from(new Set(originalData.map(r => getString(r[aField]).trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
