@@ -28,7 +28,13 @@
     <button id="resetBtn">Reset</button>
   </div>
 
-  <div id="vis"></div>
+  <div style="display:flex;gap:12px;align-items:flex-start;padding:0 10px">
+    <div id="vis" style="flex:1;height:calc(100vh - 120px)"></div>
+    <div id="details" style="width:280px;padding:12px;border-left:1px solid #e3e3e3">
+      <h3 style="margin:0 0 8px 0;font-size:15px">Details</h3>
+      <div id="detailsContent" style="font-size:13px;color:#333">Hover a cell to see details here.</div>
+    </div>
+  </div>
 
   <script>
     // Load spec, populate dropdowns from data, and re-embed filtered spec
@@ -112,9 +118,13 @@
         s.encoding.x = s.encoding.x || {};
         s.encoding.x.axis = s.encoding.x.axis || {};
         s.encoding.x.axis.grid = true;
+        s.encoding.x.axis.labelAngle = s.encoding.x.axis.labelAngle || -45;
+        s.encoding.x.axis.labelAlign = s.encoding.x.axis.labelAlign || 'right';
+        s.encoding.x.axis.labelFontSize = s.encoding.x.axis.labelFontSize || 11;
         s.encoding.y = s.encoding.y || {};
         s.encoding.y.axis = s.encoding.y.axis || {};
         s.encoding.y.axis.grid = true;
+        s.encoding.y.axis.labelFontSize = s.encoding.y.axis.labelFontSize || 11;
       }
 
       // add a top axis by creating a transparent overlay layer that reuses the x encoding
@@ -127,7 +137,7 @@
 
         const topEncoding = JSON.parse(JSON.stringify(s.encoding || {}));
         topEncoding.x = topEncoding.x || {};
-        topEncoding.x.axis = Object.assign({}, topEncoding.x.axis || {}, { orient: 'top', labelAngle: 0, tickSize: 0, domain: false, grid: false });
+        topEncoding.x.axis = Object.assign({}, topEncoding.x.axis || {}, { orient: 'top', labelAngle: 0, tickSize: 0, domain: false, grid: false, labelFontSize: 11 });
 
         const topLayer = {
           mark: { type: 'rect', opacity: 0 },
@@ -149,7 +159,7 @@
 
     function embedSpec(spec) {
       const prepared = prepareSpecForEmbed(spec);
-      vegaEmbed('#vis', prepared, { actions: false, renderer: 'canvas' });
+      return vegaEmbed('#vis', prepared, { actions: false, renderer: 'canvas' });
     }
 
     function applyFilters() {
@@ -236,8 +246,34 @@
           });
         }
 
-        // initial embed
-        embedSpec(spec);
+        // initial embed and attach interaction handlers
+        embedSpec(spec).then(res => {
+          try {
+            const view = res.view;
+            const detailsEl = document.getElementById('detailsContent');
+            const show = d => {
+              if (!d) { detailsEl.innerHTML = 'Hover a cell to see details here.'; return; }
+              const agency = d['Display_Name'] || d['display_name'] || d['agency'] || d['agency_clean'] || '';
+              const metro = d['Metro'] || d['metro'] || '';
+              const local = d['Local_Margin_Str'] || d['Local_Margin'] !== undefined ? (d['Local_Margin_Str'] || (d['Local_Margin'] + '%')) : '';
+              const global = d['Global_Avg_Margin_Str'] || d['Global_Avg_Margin'] !== undefined ? (d['Global_Avg_Margin_Str'] || (d['Global_Avg_Margin'] + '%')) : '';
+              const venueCount = d['Venue_Count'] !== undefined ? d['Venue_Count'] : '';
+              detailsEl.innerHTML = `<b>Agency:</b> ${agency}<br/><b>Metro:</b> ${metro}<br/><b>Venue Count:</b> ${venueCount}<br/><b>Local Margin:</b> ${local}<br/><b>Global Avg Margin:</b> ${global}`;
+            };
+
+            if (view && view.addEventListener) {
+              view.addEventListener('mouseover', (event, item) => {
+                if (item && item.datum) show(item.datum);
+              });
+              view.addEventListener('click', (event, item) => {
+                if (item && item.datum) show(item.datum);
+              });
+              view.addEventListener('mouseout', () => show(null));
+            }
+          } catch (e) {
+            console.warn('Could not attach interaction handlers', e);
+          }
+        }).catch(err => console.error('embed failed', err));
       })
       .catch(err => {
         console.error('Failed to load spec', err);
