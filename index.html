@@ -113,7 +113,7 @@
     function prepareSpecForEmbed(spec) {
       const s = JSON.parse(JSON.stringify(spec));
 
-      // enable gridlines on both axes where possible
+      // ensure axis/grid styling for main chart
       if (s.encoding) {
         s.encoding.x = s.encoding.x || {};
         s.encoding.x.axis = s.encoding.x.axis || {};
@@ -127,31 +127,28 @@
         s.encoding.y.axis.labelFontSize = s.encoding.y.axis.labelFontSize || 11;
       }
 
-      // add a top axis by creating a transparent overlay layer that reuses the x encoding
+      // create a small top chart that only renders the x-axis labels (no visible marks),
+      // and vconcat it above the main chart to avoid axis property conflicts.
       try {
-        const bottomLayer = {
-          mark: s.mark,
-          encoding: s.encoding,
-          data: s.data
+        const topSpec = {
+          data: s.data,
+          mark: { type: 'point', opacity: 0 },
+          encoding: {
+            x: Object.assign({}, s.encoding && s.encoding.x ? s.encoding.x : {}, { axis: Object.assign({}, (s.encoding && s.encoding.x && s.encoding.x.axis) || {}, { orient: 'top', labelAngle: 0, tickSize: 0, domain: false, grid: false, labelFontSize: 11 }) }),
+            y: { value: 0 }
+          },
+          height: 40
         };
 
-        const topEncoding = JSON.parse(JSON.stringify(s.encoding || {}));
-        topEncoding.x = topEncoding.x || {};
-        topEncoding.x.axis = Object.assign({}, topEncoding.x.axis || {}, { orient: 'top', labelAngle: 0, tickSize: 0, domain: false, grid: false, labelFontSize: 11 });
+        const mainSpec = JSON.parse(JSON.stringify(s));
 
-        const topLayer = {
-          mark: { type: 'rect', opacity: 0 },
-          encoding: topEncoding,
-          data: s.data
-        };
-
-        // build layered spec while preserving datasets and config
-        const layered = Object.assign({}, s);
-        delete layered.mark;
-        delete layered.encoding;
-        delete layered.data;
-        layered.layer = [bottomLayer, topLayer];
-        return layered;
+        // build vconcat spec while preserving top-level config and datasets
+        const concatSpec = Object.assign({}, s);
+        delete concatSpec.mark;
+        delete concatSpec.encoding;
+        delete concatSpec.data;
+        concatSpec.vconcat = [topSpec, mainSpec];
+        return concatSpec;
       } catch (e) {
         return s;
       }
@@ -225,6 +222,36 @@
       .then(spec => {
         originalSpec = spec;
         originalData = findDataArray(spec);
+
+        // Filter out agencies with fewer than 10 total Venue_Count across metros
+        if (originalData && originalData.length) {
+          const aFieldGuess = tryGetFieldName(originalData[0], ['Display_Name','display_name','agency','agency_clean','Agency','provider','organization']);
+          const totals = {};
+          for (const r of originalData) {
+            const name = getString(r[aFieldGuess]).trim();
+            const vc = Number(r['Venue_Count'] || r['venue_count'] || 0) || 0;
+            totals[name] = (totals[name] || 0) + vc;
+          }
+          const allowed = new Set(Object.keys(totals).filter(k => totals[k] >= 10));
+          const filtered = originalData.filter(r => allowed.has(getString(r[aFieldGuess]).trim()));
+          if (filtered.length) originalData = filtered;
+
+          // also replace dataset in originalSpec so initial embed shows filtered data
+          try {
+            if (originalSpec.datasets && typeof originalSpec.datasets === 'object') {
+              if (originalSpec.data && typeof originalSpec.data === 'object' && originalSpec.data.name && Array.isArray(originalSpec.datasets[originalSpec.data.name])) {
+                originalSpec.datasets[originalSpec.data.name] = originalData;
+              } else {
+                const keys = Object.keys(originalSpec.datasets);
+                if (keys.length) originalSpec.datasets[keys[0]] = originalData;
+              }
+            } else if (originalSpec.data && Array.isArray(originalSpec.data.values)) {
+              originalSpec.data.values = originalData;
+            }
+          } catch (e) {
+            console.warn('Could not update originalSpec datasets', e);
+          }
+        }
 
         if (originalData && originalData.length) {
           // try to detect field names
