@@ -143,12 +143,24 @@
         };
 
         const mainSpec = JSON.parse(JSON.stringify(s));
+        // remove any top-level title/description to clear the red header area
+        delete mainSpec.title;
+        delete mainSpec.description;
+        // force rect mark to not render strokes so each cell appears as a single square
+        if (!mainSpec.mark || mainSpec.mark === 'rect') {
+          mainSpec.mark = { type: 'rect', stroke: 'transparent', strokeWidth: 0 };
+        } else if (typeof mainSpec.mark === 'object' && mainSpec.mark.type === 'rect') {
+          mainSpec.mark.stroke = 'transparent';
+          mainSpec.mark.strokeWidth = 0;
+        }
 
         // build vconcat spec while preserving top-level config and datasets
         const concatSpec = Object.assign({}, s);
         delete concatSpec.mark;
         delete concatSpec.encoding;
         delete concatSpec.data;
+        // remove title from the outer spec to avoid duplicate header
+        delete concatSpec.title;
         concatSpec.vconcat = [topSpec, mainSpec];
         return concatSpec;
       } catch (e) {
