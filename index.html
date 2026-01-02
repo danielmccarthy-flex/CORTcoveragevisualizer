@@ -22,16 +22,127 @@
   </style>
 </head>
 <body>
+  <div style="padding:10px;display:flex;gap:12px;align-items:center">
+    <label>Venue: <select id="venueSelect"><option value="All">All</option></select></label>
+    <label>Agency: <select id="agencySelect"><option value="All">All</option></select></label>
+    <button id="resetBtn">Reset</button>
+  </div>
+
   <div id="vis"></div>
 
   <script>
-    fetch("Interactive_Agency_Coverage__Expansion_Map.json")
+    // Load spec, populate dropdowns from data, and re-embed filtered spec
+    let originalSpec = null;
+    let originalData = null; // array of feature/records used by the visualization
+
+    function findDataArray(spec) {
+      if (!spec || !spec.data) return null;
+      for (const d of spec.data) {
+        if (Array.isArray(d.values)) return d.values;
+      }
+      return null;
+    }
+
+    function tryGetFieldName(record, candidates) {
+      for (const c of candidates) {
+        if (record && Object.prototype.hasOwnProperty.call(record, c)) return c;
+        const lower = Object.keys(record || {}).find(k => k.toLowerCase() === c.toLowerCase());
+        if (lower) return lower;
+      }
+      return null;
+    }
+
+    function getString(val) {
+      if (val === null || val === undefined) return "";
+      return String(val);
+    }
+
+    function populateSelect(selectEl, options) {
+      // clear existing (keep first option for All)
+      const first = selectEl.querySelector('option');
+      selectEl.innerHTML = '';
+      const allOpt = document.createElement('option');
+      allOpt.value = 'All';
+      allOpt.textContent = 'All';
+      selectEl.appendChild(allOpt);
+      options.forEach(opt => {
+        const o = document.createElement('option');
+        o.value = opt;
+        o.textContent = opt;
+        selectEl.appendChild(o);
+      });
+    }
+
+    function embedSpec(spec) {
+      vegaEmbed('#vis', spec, { actions: false, renderer: 'canvas' });
+    }
+
+    function applyFilters() {
+      if (!originalSpec || !originalData) return;
+      const venueSel = document.getElementById('venueSelect').value;
+      const agencySel = document.getElementById('agencySelect').value;
+
+      const specCopy = JSON.parse(JSON.stringify(originalSpec));
+      const dataArr = findDataArray(specCopy);
+      if (!dataArr) {
+        embedSpec(specCopy);
+        return;
+      }
+
+      const filtered = originalData.filter(rec => {
+        let ok = true;
+        if (venueSel && venueSel !== 'All') {
+          const vField = tryGetFieldName(rec, ['venue', 'Venue', 'site', 'location', 'name']);
+          ok = ok && getString(rec[vField]).toLowerCase() === venueSel.toLowerCase();
+        }
+        if (agencySel && agencySel !== 'All') {
+          const aField = tryGetFieldName(rec, ['agency', 'Agency', 'provider', 'organization']);
+          ok = ok && getString(rec[aField]).toLowerCase() === agencySel.toLowerCase();
+        }
+        return ok;
+      });
+
+      // replace the first data array found with filtered values
+      for (const d of specCopy.data) {
+        if (Array.isArray(d.values)) {
+          d.values = filtered;
+          break;
+        }
+      }
+      embedSpec(specCopy);
+    }
+
+    fetch('Interactive_Agency_Coverage__Expansion_Map.json')
       .then(res => res.json())
       .then(spec => {
-        vegaEmbed("#vis", spec, {
-          actions: false,
-          renderer: "canvas"
-        });
+        originalSpec = spec;
+        originalData = findDataArray(spec);
+
+        if (originalData && originalData.length) {
+          // try to detect field names
+          const vField = tryGetFieldName(originalData[0], ['venue', 'Venue', 'site', 'location', 'name']);
+          const aField = tryGetFieldName(originalData[0], ['agency', 'Agency', 'provider', 'organization']);
+
+          const venues = Array.from(new Set(originalData.map(r => getString(r[vField]).trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+          const agencies = Array.from(new Set(originalData.map(r => getString(r[aField]).trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+
+          populateSelect(document.getElementById('venueSelect'), venues);
+          populateSelect(document.getElementById('agencySelect'), agencies);
+
+          document.getElementById('venueSelect').addEventListener('change', applyFilters);
+          document.getElementById('agencySelect').addEventListener('change', applyFilters);
+          document.getElementById('resetBtn').addEventListener('click', () => {
+            document.getElementById('venueSelect').value = 'All';
+            document.getElementById('agencySelect').value = 'All';
+            applyFilters();
+          });
+        }
+
+        // initial embed
+        embedSpec(spec);
+      })
+      .catch(err => {
+        console.error('Failed to load spec', err);
       });
   </script>
 </body>
