@@ -40,6 +40,8 @@
     // Load spec, populate dropdowns from data, and re-embed filtered spec
     let originalSpec = null;
     let originalData = null; // array of feature/records used by the visualization
+    let venueField = null;
+    let agencyField = null;
 
     function findDataArray(spec) {
       if (!spec) return null;
@@ -173,47 +175,59 @@
 
       const filtered = originalData.filter(rec => {
         let ok = true;
-        if (venueSel && venueSel !== 'All') {
-          const vField = tryGetFieldName(rec, ['venue', 'Venue', 'site', 'location', 'name']);
-          ok = ok && getString(rec[vField]).toLowerCase() === venueSel.toLowerCase();
+        if (venueSel && venueSel !== 'All' && venueField) {
+          ok = ok && getString(rec[venueField]).toLowerCase() === venueSel.toLowerCase();
         }
-        if (agencySel && agencySel !== 'All') {
-          const aField = tryGetFieldName(rec, ['agency', 'Agency', 'provider', 'organization']);
-          ok = ok && getString(rec[aField]).toLowerCase() === agencySel.toLowerCase();
+        if (agencySel && agencySel !== 'All' && agencyField) {
+          ok = ok && getString(rec[agencyField]).toLowerCase() === agencySel.toLowerCase();
         }
         return ok;
       });
 
-      // replace the first data array found with filtered values
-      let replaced = false;
-      if (specCopy.datasets && typeof specCopy.datasets === 'object') {
-        // if data references a named dataset, replace that first
-        if (specCopy.data && typeof specCopy.data === 'object' && specCopy.data.name && Array.isArray(specCopy.datasets[specCopy.data.name])) {
-          specCopy.datasets[specCopy.data.name] = filtered;
-          replaced = true;
-        }
-        if (!replaced) {
-          for (const k of Object.keys(specCopy.datasets)) {
-            if (Array.isArray(specCopy.datasets[k])) {
-              specCopy.datasets[k] = filtered;
-              replaced = true;
-              break;
+      // helper to replace data in various spec shapes (datasets, data, vconcat, layer)
+      function replaceDataInSpec(s) {
+        let replacedLocal = false;
+        if (s.datasets && typeof s.datasets === 'object') {
+          if (s.data && typeof s.data === 'object' && s.data.name && Array.isArray(s.datasets[s.data.name])) {
+            s.datasets[s.data.name] = filtered;
+            return true;
+          }
+          for (const k of Object.keys(s.datasets)) {
+            if (Array.isArray(s.datasets[k])) {
+              s.datasets[k] = filtered;
+              return true;
             }
           }
         }
-      }
-      if (!replaced && specCopy.data && Array.isArray(specCopy.data)) {
-        for (const d of specCopy.data) {
-          if (Array.isArray(d.values)) {
-            d.values = filtered;
-            replaced = true;
-            break;
+        if (s.data && Array.isArray(s.data)) {
+          for (const d of s.data) {
+            if (d && Array.isArray(d.values)) {
+              d.values = filtered;
+              return true;
+            }
           }
         }
+        if (s.data && s.data.values && Array.isArray(s.data.values)) {
+          s.data.values = filtered;
+          return true;
+        }
+        // handle vconcat or layer containing children with data
+        if (Array.isArray(s.vconcat)) {
+          for (const child of s.vconcat) {
+            if (replaceDataInSpec(child)) return true;
+          }
+        }
+        if (Array.isArray(s.layer)) {
+          for (const child of s.layer) {
+            if (replaceDataInSpec(child)) return true;
+          }
+        }
+        return replacedLocal;
       }
-      if (!replaced && specCopy.data && specCopy.data.values && Array.isArray(specCopy.data.values)) {
-        specCopy.data.values = filtered;
-      }
+
+      // replace the first data array found with filtered values
+      let replaced = false;
+      replaced = replaceDataInSpec(specCopy);
       embedSpec(specCopy);
     }
 
@@ -257,9 +271,11 @@
           // try to detect field names
           const vField = tryGetFieldName(originalData[0], ['Metro','metro','venue', 'Venue', 'site', 'location', 'name', 'Display_Name']);
           const aField = tryGetFieldName(originalData[0], ['Display_Name','display_name','agency','agency_clean','Agency','provider','organization']);
+          venueField = vField || 'Metro';
+          agencyField = aField || 'Display_Name';
 
-          const venues = Array.from(new Set(originalData.map(r => getString(r[vField]).trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
-          const agencies = Array.from(new Set(originalData.map(r => getString(r[aField]).trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+          const venues = Array.from(new Set(originalData.map(r => getString(r[venueField]).trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+          const agencies = Array.from(new Set(originalData.map(r => getString(r[agencyField]).trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
 
           populateSelect(document.getElementById('venueSelect'), venues);
           populateSelect(document.getElementById('agencySelect'), agencies);
