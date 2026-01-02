@@ -36,9 +36,28 @@
     let originalData = null; // array of feature/records used by the visualization
 
     function findDataArray(spec) {
-      if (!spec || !spec.data) return null;
-      for (const d of spec.data) {
-        if (Array.isArray(d.values)) return d.values;
+      if (!spec) return null;
+      // check compiled datasets (vega-lite compiled output)
+      if (spec.datasets && typeof spec.datasets === 'object') {
+        for (const k of Object.keys(spec.datasets)) {
+          const v = spec.datasets[k];
+          if (Array.isArray(v)) return v;
+        }
+      }
+      // if spec.data names a dataset, resolve it
+      if (spec.data && typeof spec.data === 'object' && spec.data.name && spec.datasets && spec.datasets[spec.data.name] && Array.isArray(spec.datasets[spec.data.name])) {
+        return spec.datasets[spec.data.name];
+      }
+      // older/other specs may have data as an array of named sources
+      if (spec.data) {
+        if (Array.isArray(spec.data)) {
+          for (let i = 0; i < spec.data.length; i++) {
+            const d = spec.data[i];
+            if (d && Array.isArray(d.values)) return d.values;
+          }
+        } else if (spec.data.values && Array.isArray(spec.data.values)) {
+          return spec.data.values;
+        }
       }
       return null;
     }
@@ -103,11 +122,34 @@
       });
 
       // replace the first data array found with filtered values
-      for (const d of specCopy.data) {
-        if (Array.isArray(d.values)) {
-          d.values = filtered;
-          break;
+      let replaced = false;
+      if (specCopy.datasets && typeof specCopy.datasets === 'object') {
+        // if data references a named dataset, replace that first
+        if (specCopy.data && typeof specCopy.data === 'object' && specCopy.data.name && Array.isArray(specCopy.datasets[specCopy.data.name])) {
+          specCopy.datasets[specCopy.data.name] = filtered;
+          replaced = true;
         }
+        if (!replaced) {
+          for (const k of Object.keys(specCopy.datasets)) {
+            if (Array.isArray(specCopy.datasets[k])) {
+              specCopy.datasets[k] = filtered;
+              replaced = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!replaced && specCopy.data && Array.isArray(specCopy.data)) {
+        for (const d of specCopy.data) {
+          if (Array.isArray(d.values)) {
+            d.values = filtered;
+            replaced = true;
+            break;
+          }
+        }
+      }
+      if (!replaced && specCopy.data && specCopy.data.values && Array.isArray(specCopy.data.values)) {
+        specCopy.data.values = filtered;
       }
       embedSpec(specCopy);
     }
